@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, make_response
 import json
 import os
 import queue
@@ -211,6 +211,361 @@ def stream():
             client_queue.put(None)  # Signal to exit
     
     return Response(event_stream(), mimetype='text/event-stream')
+
+@app.route('/generate-light-map')
+def generate_light_map():
+    # Get all pins
+    pins = []
+    if os.path.exists(PINS_DIR):
+        for pin_file in os.listdir(PINS_DIR):
+            if pin_file.endswith('.json'):
+                with open(os.path.join(PINS_DIR, pin_file), 'r') as f:
+                    pin = json.load(f)
+                    pins.append(pin)
+    
+    # Sort pins by timestamp
+    pins.sort(key=lambda x: x.get('timestamp', ''))
+    
+    # Generate HTML template
+    html_template = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUI Map Snapshot</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background-color: white;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #333;
+        }
+        
+        #map {
+            flex: 1;
+            position: relative;
+        }
+        
+        .connection-heart {
+            font-size: 14px;
+            position: absolute;
+            transform-origin: center;
+            pointer-events: none;
+            text-shadow: 0 0 3px white;
+            z-index: 1001;
+        }
+        
+        @supports (offset-path: path('M 0 0 L 100 100')) {
+            .connection-heart {
+                animation: moveHeart 4s linear infinite;
+            }
+            
+            @keyframes moveHeart {
+                0% {
+                    offset-distance: 0%;
+                    offset-rotate: 0deg;
+                }
+                50% {
+                    offset-distance: 100%;
+                    offset-rotate: 0deg;
+                }
+                100% {
+                    offset-distance: 0%;
+                    offset-rotate: 0deg;
+                }
+            }
+        }
+        
+        .connect-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: white;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            transition: all 0.2s ease;
+        }
+        
+        .connect-btn:hover {
+            background: #f4f4f4;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+        
+        .connect-btn.active {
+            background: #e8e8e8;
+            transform: translateY(1px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .leaflet-popup-content {
+            text-align: center;
+        }
+        
+        .popup-image {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+        
+        .marker-label {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            pointer-events: auto;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            transform: translate(-50%, -10px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        .marker-label:hover {
+            background: white;
+            transform: translate(-50%, -12px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .leaflet-popup {
+            min-width: 220px;
+        }
+        
+        .leaflet-popup-content {
+            text-align: center;
+            width: auto !important;
+            min-width: 200px;
+        }
+        
+        .popup-image {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+            border-radius: 8px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="https://logos-world.net/wp-content/uploads/2024/07/TUI-Symbol.png" alt="TUI Logo" style="height: 40px;">
+        <h1>People of TUI.com</h1>
+    </div>
+    
+    <div id="map">
+        <button id="connectBtn" class="connect-btn" title="Toggle pin connections">❤️</button>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([50.0, 15.0], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: 'OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Initialize variables
+        const markers = [];
+        let connectionLines = [];
+        let heartElements = [];
+        let showConnections = false;
+
+        // Create red icon for markers
+        const redIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        // Function to create curved line
+        function createCurvedLine(p1, p2) {
+            const controlPoint = [
+                (p1.lat + p2.lat) / 2 + (p2.lng - p1.lng) * 0.1,
+                (p1.lng + p2.lng) / 2 - (p2.lat - p1.lat) * 0.1
+            ];
+            
+            const curvePoints = [];
+            for (let t = 0; t <= 1; t += 0.1) {
+                const lat = Math.pow(1-t, 2) * p1.lat + 
+                           2 * (1-t) * t * controlPoint[0] + 
+                           Math.pow(t, 2) * p2.lat;
+                const lng = Math.pow(1-t, 2) * p1.lng + 
+                           2 * (1-t) * t * controlPoint[1] + 
+                           Math.pow(t, 2) * p2.lng;
+                curvePoints.push([lat, lng]);
+            }
+            
+            const line = L.polyline(curvePoints, {
+                color: '#666',
+                weight: 1,
+                dashArray: '5, 10',
+                opacity: 0.6,
+                className: 'connection-line'
+            });
+            
+            const pathData = curvePoints.reduce((acc, point, i) => {
+                const pixel = map.latLngToLayerPoint(L.latLng(point[0], point[1]));
+                return acc + (i === 0 ? `M ${pixel.x} ${pixel.y}` : ` L ${pixel.x} ${pixel.y}`);
+            }, '');
+            
+            const heart = document.createElement('div');
+            heart.className = 'connection-heart';
+            heart.textContent = '❤️';
+            heart.style.left = '0';
+            heart.style.top = '0';
+            
+            if (CSS.supports('offset-path', `path('${pathData}')`)) {
+                heart.style.offsetPath = `path('${pathData}')`;
+            } else {
+                const start = map.latLngToLayerPoint(L.latLng(p1.lat, p1.lng));
+                heart.style.left = `${start.x}px`;
+                heart.style.top = `${start.y}px`;
+            }
+            
+            const mapContainer = document.querySelector('.leaflet-map-pane');
+            mapContainer.appendChild(heart);
+            heartElements.push(heart);
+            
+            const updateHeartPath = () => {
+                const newPathData = curvePoints.reduce((acc, point, i) => {
+                    const pixel = map.latLngToLayerPoint(L.latLng(point[0], point[1]));
+                    return acc + (i === 0 ? `M ${pixel.x} ${pixel.y}` : ` L ${pixel.x} ${pixel.y}`);
+                }, '');
+                
+                if (CSS.supports('offset-path', `path('${newPathData}')`)) {
+                    heart.style.offsetPath = `path('${newPathData}')`;
+                } else {
+                    const start = map.latLngToLayerPoint(L.latLng(p1.lat, p1.lng));
+                    heart.style.left = `${start.x}px`;
+                    heart.style.top = `${start.y}px`;
+                }
+            };
+            
+            map.on('move', updateHeartPath);
+            map.on('zoom', updateHeartPath);
+            
+            return line;
+        }
+
+        // Function to toggle connections
+        function toggleConnections() {
+            showConnections = !showConnections;
+            
+            connectionLines.forEach(line => map.removeLayer(line));
+            connectionLines = [];
+            heartElements.forEach(heart => heart.remove());
+            heartElements = [];
+            
+            if (showConnections) {
+                for (let i = 0; i < markers.length; i++) {
+                    for (let j = i + 1; j < markers.length; j++) {
+                        const line = createCurvedLine(
+                            markers[i].getLatLng(),
+                            markers[j].getLatLng()
+                        );
+                        line.addTo(map);
+                        connectionLines.push(line);
+                    }
+                }
+                document.getElementById('connectBtn').classList.add('active');
+            } else {
+                document.getElementById('connectBtn').classList.remove('active');
+            }
+        }
+
+        // Add click handler for connect button
+        document.getElementById('connectBtn').addEventListener('click', toggleConnections);
+
+        // Function to create a label for a marker
+        function createMarkerLabel(marker, name) {
+            const labelIcon = L.divIcon({
+                className: 'marker-label',
+                html: name,
+                iconSize: null
+            });
+            
+            const label = L.marker(marker.getLatLng(), {
+                icon: labelIcon,
+                zIndexOffset: 1000
+            });
+            
+            // Make label clickable
+            label.on('click', () => {
+                marker.openPopup();
+            });
+            
+            return label;
+        }
+
+        // Add pins to map
+        const pins = ''' + json.dumps(pins) + ''';
+        
+        pins.forEach(pin => {
+            const marker = L.marker([pin.lat, pin.lng], {
+                icon: redIcon,
+                riseOnHover: true
+            });
+            
+            const popupContent = `
+                <div>
+                    <strong>${pin.name}</strong>
+                    ${pin.image ? `<br><img src="${pin.image}" class="popup-image" alt="${pin.name}" onload="this.parentElement.parentElement._leaflet_popup._updateLayout();">` : ''}
+                </div>
+            `;
+            
+            marker.bindPopup(popupContent, {
+                minWidth: 220,
+                maxWidth: 300,
+                autoPanPadding: [50, 50]
+            });
+            
+            // Create and add label
+            const label = createMarkerLabel(marker, pin.name);
+            label.addTo(map);
+            
+            marker.addTo(map);
+            markers.push(marker);
+        });
+    </script>
+</body>
+</html>'''
+
+    # Send as downloadable file
+    response = make_response(html_template)
+    response.headers['Content-Type'] = 'text/html'
+    response.headers['Content-Disposition'] = 'attachment; filename=tui-map-snapshot.html'
+    return response
 
 if __name__ == '__main__':
     app.run(debug=False)
