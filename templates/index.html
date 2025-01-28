@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Map</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .header img {
+            height: 40px;
+            width: auto;
+            margin-right: 15px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: white;
+        }
+        
+        .main-container {
+            flex: 1;
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+        
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+        
+        .sidebar {
+            width: 350px;
+            background: #f8f9fa;
+            padding: 20px;
+            overflow-y: auto;
+            border-left: 1px solid #dee2e6;
+        }
+        
+        .form-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .recent-activity {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        #activity-feed {
+            max-height: calc(100vh - 500px);
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        
+        .activity-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            margin-bottom: 8px;
+        }
+        
+        .activity-item.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .activity-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .activity-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            margin-top: 8px;
+            display: block;
+        }
+        
+        h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .input-group {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: white;
+            color: #333;
+        }
+        
+        .input-group input::placeholder {
+            color: #999;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .input-group input:focus {
+            border-color: #00a0dc;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(0, 160, 220, 0.1);
+        }
+        
+        .input-group input:focus::placeholder {
+            opacity: 0.5;
+        }
+        
+        .helper-text {
+            display: block;
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .helper-text a {
+            color: #00a0dc;
+            text-decoration: none;
+        }
+        
+        .helper-text a:hover {
+            text-decoration: underline;
+        }
+        
+        #addPinBtn {
+            background-color: #00a0dc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        #addPinBtn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        #addPinBtn:not(:disabled):hover {
+            background-color: #0081b3;
+        }
+        
+        .marker-label {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transform: translateY(-20px);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .marker-label:hover {
+            background: rgba(255, 255, 255, 1);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+            transform: translateY(-21px);
+        }
+        
+        .label-content {
+            padding: 2px;
+        }
+        
+        .marker-label {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        #map.pin-mode {
+            cursor: crosshair !important;
+        }
+        
+        .leaflet-popup {
+            opacity: 0;
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        
+        .leaflet-tooltip {
+            opacity: 0;
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes dropMarker {
+            0% {
+                margin-top: -200px;
+                margin-bottom: 200px;
+                opacity: 0;
+            }
+            50% {
+                margin-top: -25px;
+                margin-bottom: 25px;
+                opacity: 1;
+            }
+            75% {
+                margin-top: -35px;
+                margin-bottom: 35px;
+            }
+            100% {
+                margin-top: -25px;
+                margin-bottom: 25px;
+            }
+        }
+        
+        .marker-drop {
+            animation: dropMarker 0.6s ease-out forwards;
+        }
+        
+        .leaflet-marker-icon.marker-drop {
+            pointer-events: auto !important;
+        }
+
+        /* Side Panel Styles */
+        .activity-item {
+            padding: 12px;
+            margin-bottom: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+            border-left: 4px solid #00a0dc;
+        }
+        
+        .activity-item.show {
+            transform: translateX(0);
+        }
+        
+        .activity-item strong {
+            color: #00a0dc;
+        }
+        
+        .activity-image {
+            margin-top: 10px;
+            background: #f5f5f5;
+            padding: 8px;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .activity-image img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            margin: 0 auto;
+        }
+        
+        .custom-popup {
+            margin: 0;
+        }
+        
+        .custom-popup .leaflet-popup-content {
+            margin: 10px;
+            min-width: 200px;
+        }
+        
+        .custom-popup .image-container {
+            margin-top: 8px;
+            text-align: center;
+            background: #f5f5f5;
+            border-radius: 4px;
+            padding: 5px;
+        }
+        
+        .custom-popup img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto;
+            border-radius: 4px;
+        }
+        
+        /* Loading spinner styles */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            opacity: 1;
+            transition: opacity 0.3s;
+        }
+        
+        #loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .loading-content {
+            text-align: center;
+        }
+        
+        .sun-spinner {
+            width: 200px;
+            height: 200px;
+            position: relative;
+            margin: 0 auto 20px;
+            animation: spin 4s linear infinite;
+        }
+        
+        .sun-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50px;
+            height: 50px;
+            background: #FFD700;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+        }
+        
+        .sun-ray {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 80px;
+            background: #FFD700;
+            transform-origin: center top;
+            margin-left: -4px;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+        }
+        
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        #loading-text {
+            font-size: 18px;
+            color: #333;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes dropMarker {
+            0% {
+                margin-top: -200px;
+                margin-bottom: 200px;
+                opacity: 0;
+            }
+            50% {
+                margin-top: -25px;
+                margin-bottom: 25px;
+                opacity: 1;
+            }
+            75% {
+                margin-top: -35px;
+                margin-bottom: 35px;
+            }
+            100% {
+                margin-top: -25px;
+                margin-bottom: 25px;
+            }
+        }
+        
+        .marker-drop {
+            animation: dropMarker 0.6s ease-out forwards;
+        }
+        
+        .leaflet-marker-icon.marker-drop {
+            pointer-events: auto !important;
+        }
+        
+        @keyframes growAndSpin {
+            0% {
+                transform: scale(0.1) rotate(0deg);
+            }
+            20% {
+                transform: scale(1) rotate(72deg);
+            }
+            100% {
+                transform: scale(1) rotate(360deg);
+            }
+        }
+        
+        .loading-overlay.active .sun-spinner {
+            animation: growAndSpin 4s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+            opacity: 1;
+        }
+        
+        .delete-btn {
+            background-color: #ff4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 8px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .delete-btn:hover {
+            background-color: #cc0000;
+        }
+        
+        .custom-popup .leaflet-popup-content {
+            margin: 13px;
+            text-align: center;
+        }
+        
+        .custom-popup .leaflet-popup-content-wrapper {
+            border-radius: 8px;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="https://logos-world.net/wp-content/uploads/2024/07/TUI-Symbol.png" alt="TUI Logo" style="height: 40px;">
+        <h1>People of TUI.com</h1>
+    </div>
+    
+    <div class="main-container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="form-container">
+                <h3>Add a Pin</h3>
+                <div class="input-group">
+                    <input type="text" id="name" placeholder="Enter your name" maxlength="40" required oninput="updateAddPinButton()">
+                </div>
+                <div class="input-group">
+                    <input type="text" id="imageUrl" placeholder="Image URL (optional)">
+                    <small class="helper-text">Please go to <a href="https://giphy.com/" target="_blank">https://giphy.com/</a> and copy the link to the GIF that represents your favorite activity</small>
+                </div>
+                <div class="input-group">
+                    <button id="addPinBtn" disabled onclick="togglePinMode()">Add Pin</button>
+                </div>
+                <p id="instructions">Click "Add Pin" to start placing your marker</p>
+            </div>
+            
+            <div class="recent-activity">
+                <h3>Recent Activity</h3>
+                <div id="activity-feed"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading-overlay" class="hidden">
+        <div class="loading-content">
+            <div class="sun-spinner">
+                <div class="sun-center"></div>
+                <div class="sun-ray" style="transform: rotate(0deg)"></div>
+                <div class="sun-ray" style="transform: rotate(30deg)"></div>
+                <div class="sun-ray" style="transform: rotate(60deg)"></div>
+                <div class="sun-ray" style="transform: rotate(90deg)"></div>
+                <div class="sun-ray" style="transform: rotate(120deg)"></div>
+                <div class="sun-ray" style="transform: rotate(150deg)"></div>
+                <div class="sun-ray" style="transform: rotate(180deg)"></div>
+                <div class="sun-ray" style="transform: rotate(210deg)"></div>
+                <div class="sun-ray" style="transform: rotate(240deg)"></div>
+                <div class="sun-ray" style="transform: rotate(270deg)"></div>
+                <div class="sun-ray" style="transform: rotate(300deg)"></div>
+                <div class="sun-ray" style="transform: rotate(330deg)"></div>
+            </div>
+            <div id="loading-text"></div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        let isPinMode = false;
+        let lastKnownPins = [];
+
+        // Function to sanitize text input
+        function sanitizeText(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.textContent;
+        }
+
+        // Function to validate name input
+        function validateNameInput(input) {
+            // Remove any HTML tags
+            let sanitized = input.replace(/<[^>]*>/g, '');
+            
+            // Allow letters, numbers, spaces, apostrophes, hyphens and basic punctuation
+            sanitized = sanitized.replace(/[^a-zA-Z0-9\s'.,!?-]/g, '');
+            
+            // Limit to 40 characters
+            sanitized = sanitized.substring(0, 40);
+            
+            // Trim only leading and trailing spaces for button enable/disable
+            return sanitized;
+        }
+
+        // Function to update Add Pin button state
+        function updateAddPinButton() {
+            const nameInput = document.getElementById('name');
+            const addPinBtn = document.getElementById('addPinBtn');
+            
+            // Enable button if name has valid content
+            addPinBtn.disabled = !validateNameInput(nameInput.value);
+            
+            // Update button text based on pin mode
+            if (!addPinBtn.disabled) {
+                addPinBtn.textContent = isPinMode ? 'Cancel' : 'Add Pin';
+            }
+        }
+        
+        // Function to toggle pin mode
+        function togglePinMode() {
+            isPinMode = !isPinMode;
+            const mapContainer = map.getContainer();
+            const addPinBtn = document.getElementById('addPinBtn');
+            const instructions = document.getElementById('instructions');
+            
+            if (isPinMode) {
+                mapContainer.classList.add('pin-mode');
+                addPinBtn.textContent = 'Cancel';
+                instructions.textContent = 'Click anywhere on the map to drop your pin';
+            } else {
+                mapContainer.classList.remove('pin-mode');
+                addPinBtn.textContent = 'Add Pin';
+                instructions.textContent = 'Click "Add Pin" to start placing your marker';
+            }
+        }
+
+        // Function to compare pins and detect changes
+        function findNewPins(currentPins) {
+            // Find new pins by comparing IDs
+            const newPins = currentPins.filter(current => {
+                return !lastKnownPins.some(known => known.id === current.id);
+            });
+            
+            // Find deleted pins
+            const deletedPins = lastKnownPins.filter(known => {
+                return !currentPins.some(current => current.id === known.id);
+            });
+            
+            // Remove deleted pins and their labels from map
+            deletedPins.forEach(deletedPin => {
+                const markerToRemove = markers.find(m => m.pinId === deletedPin.id);
+                if (markerToRemove) {
+                    // Remove label if it exists
+                    if (markerToRemove.associatedLabel) {
+                        map.removeLayer(markerToRemove.associatedLabel);
+                    }
+                    
+                    // Remove marker
+                    markerToRemove.closePopup();
+                    map.removeLayer(markerToRemove);
+                    
+                    // Remove from markers array
+                    markers = markers.filter(m => m !== markerToRemove);
+                    
+                    // Add deletion to activity feed
+                    addActivityItem({
+                        name: markerToRemove.pinName,
+                        timestamp: new Date().toISOString()
+                    }, 'deleted');
+                }
+            });
+            
+            return newPins;
+        }
+
+        // Function to poll for new pins
+        function pollForNewPins() {
+            fetch('/pins')
+                .then(response => response.json())
+                .then(currentPins => {
+                    const newPins = findNewPins(currentPins);
+                    
+                    // Add new pins to the map and activity feed
+                    newPins.forEach(pin => {
+                        // Skip if we already have this pin on the map
+                        if (!markers.some(m => m.pinId === pin.id)) {
+                            addMarker(pin);
+                            addActivityItem(pin, 'added');
+                        }
+                    });
+                    
+                    // Update last known pins
+                    lastKnownPins = currentPins;
+                })
+                .catch(error => console.error('Error polling for pins:', error));
+        }
+
+        // Initialize map centered on Europe
+        const map = L.map('map').setView([50.0, 15.0], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: 'OpenStreetMap contributors'
+        }).addTo(map);
+
+        let selectedLocation = null;
+        let markers = [];
+        let activityFeed = [];
+
+        // Create red icon for markers
+        const redIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        // Function to animate marker drop
+        function animateMarkerDrop(marker, latlng) {
+            console.log('Starting animation for marker at:', latlng);
+            
+            // Set marker at final position
+            marker.setLatLng(latlng);
+            
+            // Get the icon element
+            const icon = marker.getElement();
+            if (icon) {
+                // Add animation class
+                icon.classList.add('marker-drop');
+                
+                // Remove class after animation
+                setTimeout(() => {
+                    icon.classList.remove('marker-drop');
+                }, 600);
+            }
+        }
+
+        // Function to clear all markers
+        function clearAllMarkers() {
+            markers.forEach(marker => marker.remove());
+            markers = [];
+        }
+
+        // Function to clear activity feed
+        function clearActivityFeed() {
+            const feed = document.getElementById('activity-feed');
+            feed.innerHTML = '';
+            activityFeed = [];
+        }
+
+        // Function to add activity item
+        function addActivityItem(pin, action = 'added') {
+            const activityFeed = document.getElementById('activity-feed');
+            const activityItem = document.createElement('div');
+            activityItem.className = 'activity-item new';
+            
+            // Create activity text based on action
+            let activityText;
+            if (action === 'added') {
+                activityText = `<strong>${sanitizeText(pin.name)}</strong> dropped a pin`;
+                if (pin.location) {
+                    activityText += ` near <em>${sanitizeText(pin.location)}</em>`;
+                }
+            } else if (action === 'deleted') {
+                activityText = `<strong>${sanitizeText(pin.name)}</strong> removed their pin`;
+            }
+            
+            // Format timestamp
+            const timestamp = new Date(pin.timestamp || new Date()).toLocaleTimeString();
+            
+            let imageHtml = '';
+            if (action === 'added' && pin.image) {
+                imageHtml = `
+                    <div class="activity-image-container">
+                        <img src="${sanitizeText(pin.image)}" alt="Activity Image" class="activity-image">
+                    </div>
+                `;
+            }
+            
+            activityItem.innerHTML = `
+                <div class="activity-content">
+                    <div class="activity-text">${activityText}</div>
+                    <div class="activity-time">${timestamp}</div>
+                    ${imageHtml}
+                </div>
+            `;
+            
+            // Add to the beginning of the feed
+            if (activityFeed.firstChild) {
+                activityFeed.insertBefore(activityItem, activityFeed.firstChild);
+            } else {
+                activityFeed.appendChild(activityItem);
+            }
+            
+            // Trigger animation
+            setTimeout(() => {
+                activityItem.classList.add('show');
+            }, 100);
+            
+            // Keep only last 50 activities
+            while (activityFeed.children.length > 50) {
+                activityFeed.removeChild(activityFeed.lastChild);
+            }
+        }
+
+        // Function to refresh map
+        function refreshMap() {
+            console.log('Refreshing map...');
+            clearAllMarkers();
+            fetch('/pins')
+                .then(response => response.json())
+                .then(pins => {
+                    console.log('Received pins:', pins);
+                    // Sort pins by timestamp
+                    pins.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    
+                    // Clear and rebuild activity feed
+                    clearActivityFeed();
+                    
+                    // Add markers and activity items
+                    pins.forEach(pin => {
+                        console.log('Adding pin:', pin);
+                        addMarker(pin);
+                        addActivityItem(pin);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error refreshing map:', error);
+                });
+        }
+
+        // Function to add a marker to the map
+        function addMarker(location) {
+            console.log('Adding marker:', location);
+            
+            // Ensure we have valid coordinates
+            if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
+                console.error('Invalid location data:', location);
+                return;
+            }
+            
+            const marker = L.marker([location.lat, location.lng], {
+                icon: redIcon,
+                riseOnHover: true
+            });
+            
+            marker.addTo(map);
+            
+            // Store pin data with marker
+            marker.pinId = location.id;
+            marker.pinName = location.name;
+            
+            // Create popup content
+            const popup = L.popup({
+                maxWidth: 300,
+                className: 'custom-popup'
+            });
+            
+            const createPopupContent = () => {
+                const popupContent = document.createElement('div');
+                const nameStrong = document.createElement('strong');
+                nameStrong.textContent = sanitizeText(location.name);
+                popupContent.appendChild(nameStrong);
+                
+                // Add delete button if pin has an ID
+                if (location.id) {
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.textContent = '🗑️ Delete';
+                    deleteBtn.className = 'delete-btn';
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deletePin(location.id, marker);
+                    };
+                    popupContent.appendChild(document.createElement('br'));
+                    popupContent.appendChild(deleteBtn);
+                }
+                
+                if (location.image) {
+                    popupContent.appendChild(document.createElement('br'));
+                    const imageContainer = document.createElement('div');
+                    imageContainer.className = 'image-container';
+                    imageContainer.style.minHeight = '100px';
+                    popupContent.appendChild(imageContainer);
+                    
+                    const img = new Image();
+                    img.onload = function() {
+                        imageContainer.innerHTML = '';
+                        imageContainer.appendChild(img);
+                        img.style.maxWidth = '100%';
+                        img.style.height = 'auto';
+                        popup.update();
+                    };
+                    img.onerror = function() {
+                        imageContainer.textContent = 'Failed to load image';
+                    };
+                    img.src = location.image;
+                }
+                
+                return popupContent;
+            };
+            
+            popup.setContent(createPopupContent());
+            marker.bindPopup(popup);
+            
+            // Add permanent label above the marker
+            const labelIcon = L.divIcon({
+                className: 'marker-label',
+                html: `<div class="label-content">${sanitizeText(location.name)}</div>`,
+                iconSize: [100, 20],
+                iconAnchor: [50, 60]
+            });
+            
+            // Position label slightly above the actual marker position
+            const labelLatLng = L.latLng(
+                location.lat + 0.0002,
+                location.lng
+            );
+            
+            const label = L.marker(labelLatLng, {
+                icon: labelIcon,
+                zIndexOffset: 1000,
+                interactive: true  // Make label interactive
+            }).addTo(map);
+            
+            // Add click handler to label
+            label.on('click', () => {
+                marker.openPopup();
+            });
+            
+            // Store label with marker for removal later
+            marker.associatedLabel = label;
+            
+            markers.push(marker);
+            
+            setTimeout(() => {
+                animateMarkerDrop(marker, location);
+            }, 100);
+            
+            return marker;
+        }
+
+        // Function to delete a pin
+        function deletePin(pinId, marker) {
+            if (confirm('Are you sure you want to delete this pin?')) {
+                fetch(`/pins/${pinId}`, {
+                    method: 'DELETE',
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Close popup if open
+                        marker.closePopup();
+                        
+                        // Remove label if it exists
+                        if (marker.associatedLabel) {
+                            map.removeLayer(marker.associatedLabel);
+                        }
+                        
+                        // Remove marker from map
+                        map.removeLayer(marker);
+                        
+                        // Remove from markers array
+                        markers = markers.filter(m => m !== marker);
+                        
+                        // Add deletion activity
+                        addActivityItem({
+                            name: marker.pinName,
+                            timestamp: new Date().toISOString()
+                        }, 'deleted');
+                        
+                        // Force refresh of pins
+                        pollForNewPins();
+                    } else {
+                        alert('Error deleting pin: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error deleting pin');
+                });
+            }
+        }
+
+        // Function to show loading overlay
+        function showLoading(name) {
+            const loadingText = document.getElementById('loading-text');
+            loadingText.innerHTML = `<span style="color: #00a0dc; font-weight: bold;">${name}</span> is dropping a pin...`;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+        
+        // Function to hide loading overlay
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        }
+
+        // Function to handle successful pin creation
+        function handlePinCreated(data) {
+            hideLoading();
+            
+            if (data.status === 'success' && data.pin_data) {
+                // Clear input fields
+                document.getElementById('name').value = '';
+                document.getElementById('imageUrl').value = '';
+                
+                // Add the new pin immediately
+                addMarker(data.pin_data);
+                addActivityItem(data.pin_data, 'added');
+                
+                // Reset pin mode
+                isPinMode = false;
+                map.getContainer().classList.remove('pin-mode');
+                document.getElementById('addPinBtn').textContent = 'Add Pin';
+                document.getElementById('instructions').textContent = 'Click "Add Pin" to start placing your marker';
+                document.getElementById('addPinBtn').disabled = true;
+                
+                // Update last known pins to prevent duplicate from polling
+                lastKnownPins.push(data.pin_data);
+            } else {
+                alert('Error adding pin: ' + (data.error || 'Unknown error'));
+            }
+        }
+
+        // Handle map click event
+        function onMapClick(e) {
+            if (!isPinMode) return;
+            
+            const nameInput = document.getElementById('name');
+            const imageUrl = document.getElementById('imageUrl').value;
+            
+            // Get sanitized name value
+            const name = validateNameInput(nameInput.value);
+            
+            // Show loading overlay
+            showLoading(name);
+            
+            // Send pin data to server
+            fetch('/pins', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lat: e.latlng.lat,
+                    lng: e.latlng.lng,
+                    name: name,
+                    image: imageUrl
+                })
+            })
+            .then(response => response.json())
+            .then(handlePinCreated)
+            .catch(error => {
+                console.error('Error:', error);
+                hideLoading();
+                alert('Error adding pin. Please try again.');
+            });
+        }
+
+        // Load existing locations
+        fetch('/pins')
+            .then(response => response.json())
+            .then(locations => {
+                console.log('Loaded locations:', locations);
+                lastKnownPins = locations;  // Initialize lastKnownPins
+                locations.forEach(location => {
+                    if (location.name !== document.getElementById('name').value) {
+                        addMarker(location);
+                        addActivityItem(location);
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading locations:', error);
+            });
+
+        // Handle map clicks
+        map.on('click', onMapClick);
+
+        function saveLocation(name, lat, lng, image) {
+            const locationData = {
+                name: name,
+                lat: lat,
+                lng: lng,
+                image: image
+            };
+
+            fetch('/pins', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(locationData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Update the temporary marker to be permanent
+                    const popupContent = image 
+                        ? `<b>${name}</b><br><img src="${image}" style="max-width:100px;"><br>`
+                        : `<b>${name}</b>`;
+                    selectedLocation.bindPopup(popupContent).openPopup();
+                    
+                    // Keep the marker on the map
+                    markers.push(selectedLocation);
+                    selectedLocation = null;
+                    
+                    // Clear form
+                    document.getElementById('name').value = '';
+                    document.getElementById('imageUrl').value = '';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving location');
+            });
+        }
+
+        // Start polling
+        setInterval(pollForNewPins, 2000);  // Poll every 2 seconds
+    </script>
+</body>
+</html>
