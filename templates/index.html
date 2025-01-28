@@ -50,6 +50,7 @@
         #map {
             flex: 1;
             height: 100%;
+            position: relative;
         }
         
         .sidebar {
@@ -478,6 +479,88 @@
             border-radius: 8px;
             padding: 5px;
         }
+        
+        .connect-btn, .download-btn {
+            position: absolute;
+            bottom: 20px;
+            z-index: 1000;
+            background: white;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            transition: all 0.2s ease;
+        }
+        
+        .connect-btn {
+            right: 20px;
+        }
+        
+        .download-btn {
+            right: 80px;
+        }
+        
+        .connect-btn:hover, .download-btn:hover {
+            background: #f4f4f4;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+        
+        .connect-btn.active, .download-btn:active {
+            background: #e8e8e8;
+            transform: translateY(1px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .connection-heart {
+            font-size: 14px;
+            position: absolute;
+            transform-origin: center;
+            pointer-events: none;
+            text-shadow: 0 0 3px white;
+            z-index: 1001;
+        }
+        
+        @supports (offset-path: path('M 0 0 L 100 100')) {
+            .connection-heart {
+                animation: moveHeart 4s linear infinite;
+            }
+            
+            @keyframes moveHeart {
+                0% {
+                    offset-distance: 0%;
+                    offset-rotate: 0deg;
+                }
+                50% {
+                    offset-distance: 100%;
+                    offset-rotate: 0deg;
+                }
+                100% {
+                    offset-distance: 0%;
+                    offset-rotate: 0deg;
+                }
+            }
+        }
+        
+        @supports not (offset-path: path('M 0 0 L 100 100')) {
+            .connection-heart {
+                animation: moveHeartFallback 4s linear infinite;
+            }
+            
+            @keyframes moveHeartFallback {
+                0% {
+                    transform: translate(0, 0);
+                }
+                50% {
+                    transform: translate(100%, 0);
+                }
+                100% {
+                    transform: translate(0, 0);
+                }
+            }
+        }
     </style>
 </head>
 <body>
@@ -487,7 +570,10 @@
     </div>
     
     <div class="main-container">
-        <div id="map"></div>
+        <div id="map">
+            <button id="downloadBtn" class="download-btn" title="Download Light Map (requires internet)">💾</button>
+            <button id="connectBtn" class="connect-btn" title="Toggle pin connections">❤️</button>
+        </div>
         <div class="sidebar">
             <div class="form-container">
                 <h3>Add a Pin</h3>
@@ -538,13 +624,34 @@
     <script>
         let isPinMode = false;
         let lastKnownPins = [];
-
+        let markers = [];
+        let connectionLines = [];
+        let showConnections = false;
+        let heartElements = [];
+        
         // Function to sanitize text input
         function sanitizeText(text) {
             const div = document.createElement('div');
             div.textContent = text;
-            return div.textContent;
+            return div.innerHTML;
         }
+
+        // Initialize map centered on Europe
+        const map = L.map('map').setView([50.0, 15.0], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: 'OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Create red icon for markers
+        const redIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
 
         // Function to validate name input
         function validateNameInput(input) {
@@ -653,27 +760,6 @@
                 })
                 .catch(error => console.error('Error polling for pins:', error));
         }
-
-        // Initialize map centered on Europe
-        const map = L.map('map').setView([50.0, 15.0], 4);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: 'OpenStreetMap contributors'
-        }).addTo(map);
-
-        let selectedLocation = null;
-        let markers = [];
-        let activityFeed = [];
-
-        // Create red icon for markers
-        const redIcon = L.icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34],
-            shadowSize: [41, 41]
-        });
 
         // Function to animate marker drop
         function animateMarkerDrop(marker, latlng) {
@@ -892,6 +978,21 @@
             
             markers.push(marker);
             
+            // Update connections if they're currently shown
+            if (showConnections) {
+                // Connect new marker to all existing markers
+                markers.forEach(existingMarker => {
+                    if (existingMarker !== marker) {
+                        const line = createCurvedLine(
+                            marker.getLatLng(),
+                            existingMarker.getLatLng()
+                        );
+                        line.addTo(map);
+                        connectionLines.push(line);
+                    }
+                });
+            }
+            
             setTimeout(() => {
                 animateMarkerDrop(marker, location);
             }, 100);
@@ -921,6 +1022,13 @@
                         
                         // Remove from markers array
                         markers = markers.filter(m => m !== marker);
+                        
+                        // Update connections if they're shown
+                        if (showConnections) {
+                            // Remove all lines and recreate them
+                            toggleConnections();
+                            toggleConnections();
+                        }
                         
                         // Add deletion activity
                         addActivityItem({
@@ -980,6 +1088,147 @@
             }
         }
 
+        // Function to create a curved line between two points
+        function createCurvedLine(p1, p2) {
+            // Calculate control point for the curve
+            const controlPoint = [
+                (p1.lat + p2.lat) / 2 + (p2.lng - p1.lng) * 0.1,
+                (p1.lng + p2.lng) / 2 - (p2.lat - p1.lat) * 0.1
+            ];
+            
+            // Generate points for the curve
+            const curvePoints = [];
+            for (let t = 0; t <= 1; t += 0.1) {
+                const lat = Math.pow(1-t, 2) * p1.lat + 
+                           2 * (1-t) * t * controlPoint[0] + 
+                           Math.pow(t, 2) * p2.lat;
+                const lng = Math.pow(1-t, 2) * p1.lng + 
+                           2 * (1-t) * t * controlPoint[1] + 
+                           Math.pow(t, 2) * p2.lng;
+                curvePoints.push([lat, lng]);
+            }
+            
+            const line = L.polyline(curvePoints, {
+                color: '#666',
+                weight: 1,
+                dashArray: '5, 10',
+                opacity: 0.6,
+                className: 'connection-line'
+            });
+            
+            // Create SVG path for the heart to follow
+            const pathData = curvePoints.reduce((acc, point, i) => {
+                const pixel = map.latLngToLayerPoint(L.latLng(point[0], point[1]));
+                return acc + (i === 0 ? `M ${pixel.x} ${pixel.y}` : ` L ${pixel.x} ${pixel.y}`);
+            }, '');
+            
+            // Create heart element
+            const heart = document.createElement('div');
+            heart.className = 'connection-heart';
+            heart.textContent = '❤️';
+            heart.style.left = '0';
+            heart.style.top = '0';
+            
+            // Use transform for better performance
+            if (CSS.supports('offset-path', `path('${pathData}')`)) {
+                heart.style.offsetPath = `path('${pathData}')`;
+            } else {
+                const start = map.latLngToLayerPoint(L.latLng(p1.lat, p1.lng));
+                const end = map.latLngToLayerPoint(L.latLng(p2.lat, p2.lng));
+                heart.style.left = `${start.x}px`;
+                heart.style.top = `${start.y}px`;
+            }
+            
+            const mapContainer = document.querySelector('.leaflet-map-pane');
+            mapContainer.appendChild(heart);
+            heartElements.push(heart);
+            
+            // Update heart path on map move/zoom
+            const updateHeartPath = () => {
+                const newPathData = curvePoints.reduce((acc, point, i) => {
+                    const pixel = map.latLngToLayerPoint(L.latLng(point[0], point[1]));
+                    return acc + (i === 0 ? `M ${pixel.x} ${pixel.y}` : ` L ${pixel.x} ${pixel.y}`);
+                }, '');
+                
+                if (CSS.supports('offset-path', `path('${newPathData}')`)) {
+                    heart.style.offsetPath = `path('${newPathData}')`;
+                } else {
+                    const start = map.latLngToLayerPoint(L.latLng(p1.lat, p1.lng));
+                    heart.style.left = `${start.x}px`;
+                    heart.style.top = `${start.y}px`;
+                }
+            };
+            
+            map.on('move', updateHeartPath);
+            map.on('zoom', updateHeartPath);
+            
+            return line;
+        }
+
+        // Function to toggle connections between pins
+        function toggleConnections() {
+            showConnections = !showConnections;
+            
+            // Remove existing lines and hearts
+            connectionLines.forEach(line => map.removeLayer(line));
+            connectionLines = [];
+            heartElements.forEach(heart => heart.remove());
+            heartElements = [];
+            
+            if (showConnections) {
+                // Add lines between all pins
+                for (let i = 0; i < markers.length; i++) {
+                    for (let j = i + 1; j < markers.length; j++) {
+                        const line = createCurvedLine(
+                            markers[i].getLatLng(),
+                            markers[j].getLatLng()
+                        );
+                        line.addTo(map);
+                        connectionLines.push(line);
+                    }
+                }
+                document.getElementById('connectBtn').classList.add('active');
+            } else {
+                document.getElementById('connectBtn').classList.remove('active');
+            }
+        }
+
+        // Add click handler for connect button
+        document.getElementById('connectBtn').addEventListener('click', toggleConnections);
+
+        // Add click handler for download button
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            // Show loading state
+            const originalText = downloadBtn.textContent;
+            downloadBtn.textContent = '⏳';
+            downloadBtn.style.cursor = 'wait';
+            
+            // Generate and download the map
+            fetch('/generate-light-map')
+                .then(response => response.blob())
+                .then(blob => {
+                    // Create download link
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'tui-map-snapshot.html';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    // Reset button state
+                    downloadBtn.textContent = originalText;
+                    downloadBtn.style.cursor = 'pointer';
+                })
+                .catch(error => {
+                    console.error('Error generating map:', error);
+                    alert('Error generating map. Please try again.');
+                    downloadBtn.textContent = originalText;
+                    downloadBtn.style.cursor = 'pointer';
+                });
+        });
+
         // Handle map click event
         function onMapClick(e) {
             if (!isPinMode) return;
@@ -1034,45 +1283,6 @@
 
         // Handle map clicks
         map.on('click', onMapClick);
-
-        function saveLocation(name, lat, lng, image) {
-            const locationData = {
-                name: name,
-                lat: lat,
-                lng: lng,
-                image: image
-            };
-
-            fetch('/pins', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(locationData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    // Update the temporary marker to be permanent
-                    const popupContent = image 
-                        ? `<b>${name}</b><br><img src="${image}" style="max-width:100px;"><br>`
-                        : `<b>${name}</b>`;
-                    selectedLocation.bindPopup(popupContent).openPopup();
-                    
-                    // Keep the marker on the map
-                    markers.push(selectedLocation);
-                    selectedLocation = null;
-                    
-                    // Clear form
-                    document.getElementById('name').value = '';
-                    document.getElementById('imageUrl').value = '';
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error saving location');
-            });
-        }
 
         // Start polling
         setInterval(pollForNewPins, 2000);  // Poll every 2 seconds
